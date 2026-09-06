@@ -1,0 +1,32 @@
+package {{.Name}}
+
+import (
+	"github.com/gofiber/fiber/v3"
+	"github.com/jmoiron/sqlx"
+)
+
+// Feature wires together all {{.Name}} components.
+type Feature struct {
+	Handler *Handler
+}
+
+// NewFeature creates the {{.Name}} feature with its dependencies.
+func NewFeature(db *sqlx.DB) *Feature {
+	repo := NewRepository(db)
+	svc := NewService(repo)
+	return &Feature{Handler: NewHandler(svc)}
+}
+
+// RegisterRoutes attaches {{.Name}} routes to the given router.
+func (f *Feature) RegisterRoutes(router fiber.Router) {
+{{- if .CRUD}}
+	g := router.Group("/{{.Name}}")
+	g.Get("/", f.Handler.List)
+	g.Get("/:id", f.Handler.Get)
+	g.Post("/", f.Handler.Create)
+	g.Put("/:id", f.Handler.Update)
+	g.Delete("/:id", f.Handler.Delete)
+{{- else}}
+	// TODO: register {{.Name}} routes here
+{{- end}}
+}

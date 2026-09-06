@@ -1,0 +1,19 @@
+package {{.Name}}
+{{if .CRUD}}
+// Response is the response payload for {{.NameSingle}} data.
+type Response struct {
+	ID int64 `json:"id"`
+}
+
+// CreateRequest is the request body for creating a {{.NameSingle}}.
+type CreateRequest struct {
+	// TODO: add fields
+}
+
+// UpdateRequest is the request body for updating a {{.NameSingle}}.
+type UpdateRequest struct {
+	// TODO: add fields
+}
+{{- else}}
+// TODO: define request/response DTOs for {{.Name}}
+{{- end}}

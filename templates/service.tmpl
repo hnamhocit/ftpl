@@ -1,0 +1,77 @@
+package {{.Name}}
+{{- if .CRUD}}
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+)
+
+// ErrNotFound is returned when the requested {{.NameSingle}} does not exist.
+var ErrNotFound = errors.New("{{.NameSingle}} not found")
+{{- end}}
+
+// Service contains {{.Name}} business logic.
+type Service struct {
+	repo *Repository
+}
+
+// NewService creates a Service with the given repository.
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
+}
+{{if .CRUD}}
+// List returns all {{.Name}}.
+func (s *Service) List(ctx context.Context) ([]Response, error) {
+	rows, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Response, len(rows))
+	for i, r := range rows {
+		out[i] = Response{ID: r.ID}
+	}
+	return out, nil
+}
+
+// GetByID returns a {{.NameSingle}} by ID.
+func (s *Service) GetByID(ctx context.Context, id int64) (*Response, error) {
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &Response{ID: row.ID}, nil
+}
+
+// Create creates a new {{.NameSingle}}.
+func (s *Service) Create(ctx context.Context, req CreateRequest) (*Response, error) {
+	row, err := s.repo.Create(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &Response{ID: row.ID}, nil
+}
+
+// Update updates a {{.NameSingle}}.
+func (s *Service) Update(ctx context.Context, id int64, req UpdateRequest) (*Response, error) {
+	row, err := s.repo.Update(ctx, id, req)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &Response{ID: row.ID}, nil
+}
+
+// Delete deletes a {{.NameSingle}}.
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	return nil
+}
+{{- end}}

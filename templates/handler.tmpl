@@ -1,0 +1,107 @@
+package {{.Name}}
+{{- if .CRUD}}
+
+import (
+	"errors"
+	"log/slog"
+	"strconv"
+
+	"github.com/gofiber/fiber/v3"
+
+	"{{.ModulePath}}/internal/httpx"
+)
+{{- end}}
+
+// Handler contains {{.Name}} HTTP handlers.
+type Handler struct {
+	svc *Service
+}
+
+// NewHandler creates a Handler with the given service.
+func NewHandler(svc *Service) *Handler {
+	return &Handler{svc: svc}
+}
+{{if .CRUD}}
+// List returns all {{.Name}}.
+func (h *Handler) List(c fiber.Ctx) error {
+	items, err := h.svc.List(c.Context())
+	if err != nil {
+		slog.Error("list {{.Name}} failed", "error", err)
+		return httpx.Error(c, fiber.StatusInternalServerError, "failed to list {{.Name}}")
+	}
+	return httpx.OK(c, items)
+}
+
+// Get returns a {{.NameSingle}} by ID.
+func (h *Handler) Get(c fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "invalid id")
+	}
+
+	item, err := h.svc.GetByID(c.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return httpx.Error(c, fiber.StatusNotFound, "{{.NameSingle}} not found")
+		}
+		slog.Error("get {{.NameSingle}} failed", "error", err, "id", id)
+		return httpx.Error(c, fiber.StatusInternalServerError, "failed to get {{.NameSingle}}")
+	}
+	return httpx.OK(c, item)
+}
+
+// Create creates a new {{.NameSingle}}.
+func (h *Handler) Create(c fiber.Ctx) error {
+	var req CreateRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	item, err := h.svc.Create(c.Context(), req)
+	if err != nil {
+		slog.Error("create {{.NameSingle}} failed", "error", err)
+		return httpx.Error(c, fiber.StatusInternalServerError, "failed to create {{.NameSingle}}")
+	}
+	return httpx.Created(c, item)
+}
+
+// Update updates a {{.NameSingle}}.
+func (h *Handler) Update(c fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "invalid id")
+	}
+
+	var req UpdateRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "invalid request body")
+	}
+
+	item, err := h.svc.Update(c.Context(), id, req)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return httpx.Error(c, fiber.StatusNotFound, "{{.NameSingle}} not found")
+		}
+		slog.Error("update {{.NameSingle}} failed", "error", err, "id", id)
+		return httpx.Error(c, fiber.StatusInternalServerError, "failed to update {{.NameSingle}}")
+	}
+	return httpx.OK(c, item)
+}
+
+// Delete deletes a {{.NameSingle}}.
+func (h *Handler) Delete(c fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return httpx.Error(c, fiber.StatusBadRequest, "invalid id")
+	}
+
+	if err := h.svc.Delete(c.Context(), id); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return httpx.Error(c, fiber.StatusNotFound, "{{.NameSingle}} not found")
+		}
+		slog.Error("delete {{.NameSingle}} failed", "error", err, "id", id)
+		return httpx.Error(c, fiber.StatusInternalServerError, "failed to delete {{.NameSingle}}")
+	}
+	return httpx.NoContent(c)
+}
+{{- end}}
