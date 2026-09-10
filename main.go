@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// verbose bật output [debug] cho mọi command.
+// verbose enables [debug] output for every command.
 var verbose bool
 
 func main() {
@@ -66,11 +66,12 @@ var newCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 
+	// Flag overrides live on rootCmd so migrateCmd AND dbCmd both inherit them.
 	rootCmd.PersistentFlags().String("dev-url", "", "override dev database URL (skip shadow db)")
 	rootCmd.PersistentFlags().String("schema", "", "override schema file path")
 	rootCmd.PersistentFlags().String("dir", "", "override migrations directory")
 
-	rootCmd.AddCommand(generateCmd, deleteResourceCmd, newCmd, migrateCmd, dbCmd, doctorCmd, runCmd)
+	rootCmd.AddCommand(generateCmd, deleteResourceCmd, newCmd, migrateCmd, dbCmd, doctorCmd, runCmd, versionCmd, updateCmd)
 	generateCmd.AddCommand(resourceCmd)
 
 	resourceCmd.Flags().Bool("no-tests", false, "skip test files")
