@@ -18,7 +18,7 @@ import (
 )
 
 func ensureSqlc() (string, error) {
-	// 1. Kiểm tra PATH.
+	// 1. Check PATH.
 	if p, err := exec.LookPath("sqlc"); err == nil {
 		if verbose {
 			fmt.Printf("[debug] using sqlc from PATH: %s\n", p)
@@ -67,7 +67,7 @@ func ensureSqlc() (string, error) {
 	tmpPath := tmp.Name()
 	defer func() { tmp.Close(); os.Remove(tmpPath) }()
 
-	// Progress bar khi tải archive (tar.gz / zip).
+	// Progress bar when downloading archive (tar.gz / zip).
 	bar := progressbar.DefaultBytes(resp.ContentLength, "Downloading sqlc "+tag)
 	if _, err := io.Copy(io.MultiWriter(tmp, bar), resp.Body); err != nil {
 		return "", err

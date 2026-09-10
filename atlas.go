@@ -25,7 +25,7 @@ var atlasBaseURLs = []string{
 }
 
 func ensureAtlas() (string, error) {
-	// 1. Atlas cài sẵn trên máy: kiểm tra min version.
+	// 1. Pre-installed Atlas: check min version.
 	if p, err := exec.LookPath("atlas"); err == nil {
 		v, verr := binaryVersion(p)
 		if verr != nil {
@@ -66,7 +66,7 @@ func ensureAtlas() (string, error) {
 		}
 	}
 
-	// 3. Download latest — có progress bar.
+	// 3. Download latest — with progress bar.
 	if err := os.MkdirAll(atlasDir, 0o755); err != nil {
 		return "", err
 	}
@@ -84,14 +84,14 @@ func ensureAtlas() (string, error) {
 	tmpPath := tmp.Name()
 	defer func() { tmp.Close(); os.Remove(tmpPath) }()
 
-	// Progress bar: dùng Content-Length header để biết tổng size.
-	// Nếu server không gửi header (ContentLength == -1), bar sẽ hiện bytes downloaded thôi (không %).
+	// Progress bar: use Content-Length header for total size.
+	// If server does not send header (ContentLength == -1), bar only shows downloaded bytes.
 	bar := progressbar.DefaultBytes(resp.ContentLength, "Downloading atlas")
 	if _, err := io.Copy(io.MultiWriter(tmp, bar), resp.Body); err != nil {
 		return "", err
 	}
 	bar.Finish()
-	fmt.Println() // xuống dòng sau khi bar hoàn thành
+	fmt.Println() // newline after bar completes
 
 	tmp.Close()
 	if err := os.Chmod(tmpPath, 0o755); err != nil {

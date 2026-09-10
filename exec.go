@@ -30,7 +30,7 @@ func runSqlc(sqlcPath string, args ...string) error {
 	return cmd.Run()
 }
 
-// mustAtlas là shortcut cho pattern ensureAtlas + help + fatal.
+// mustAtlas is a shortcut for ensureAtlas + help + fatal.
 func mustAtlas() string {
 	atlas, err := ensureAtlas()
 	if err != nil {
@@ -40,7 +40,7 @@ func mustAtlas() string {
 	return atlas
 }
 
-// runSqlcGenerate dùng chung cho dev/reset/push.
+// runSqlcGenerate is shared between dev, reset, and push.
 func runSqlcGenerate() {
 	sqlcPath, err := ensureSqlc()
 	if err != nil {

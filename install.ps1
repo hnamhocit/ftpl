@@ -20,7 +20,7 @@ foreach ($cmd in @("git", "go")) {
 $tmp = ""
 $src = ""
 try {
-    # Đang đứng trong checkout thì build tại chỗ, khỏi clone.
+    # If running inside a checkout, build in place, skip clone.
     if ((Test-Path main.go) -and (Test-Path templates)) {
         $src = (Get-Location).Path
         Write-Host "==> Detected ftpl checkout in $src, building in place..."
@@ -53,7 +53,7 @@ try {
     }
 }
 finally {
-    # Luôn dọn temp, kể cả khi build fail giữa chừng.
+    # Always clean temp, even on failure.
     if ($tmp -and (Test-Path $tmp)) { Remove-Item -Recurse -Force $tmp }
 }
 

@@ -161,8 +161,8 @@ func runMigrateApply(cmd *cobra.Command, args []string) {
 	fmt.Println("✓ Migrations applied")
 }
 
-// runMigrateDeploy: production chỉ apply, KHÔNG generate structs
-// (structs đã generate ở dev và commit vào git).
+// runMigrateDeploy: production applies only, DOES NOT generate structs
+// (structs are generated in dev and committed to git).
 func runMigrateDeploy(cmd *cobra.Command, args []string) {
 	runMigrateApply(cmd, args)
 	fmt.Println("  (deploy mode: struct generation skipped — structs come from git)")
@@ -193,8 +193,8 @@ func runMigrateDown(cmd *cobra.Command, args []string) {
 	fmt.Println("✓ Rolled back last migration")
 }
 
-// runMigrateReset: "atlas migrate clean" đã bị loại khỏi Atlas CLI,
-// lệnh đúng là "atlas schema clean" + --auto-approve (nó hỏi confirm mặc định).
+// runMigrateReset: "atlas migrate clean" is removed from Atlas CLI,
+// the correct command is "atlas schema clean" + --auto-approve.
 func runMigrateReset(cmd *cobra.Command, args []string) {
 	force, _ := cmd.Flags().GetBool("force")
 	if !confirmPrompt("This will DROP the schema and re-apply ALL migrations. Continue?", force) {
@@ -258,8 +258,8 @@ func runMigrateValidate(cmd *cobra.Command, args []string) {
 	fmt.Println("✓ Migration directory is valid")
 }
 
-// runDbPush: schema apply mặc định hỏi confirm lần nữa (default "Abort"),
-// ftpl đã confirm rồi nên truyền --auto-approve.
+// runDbPush: schema apply asks for confirmation by default,
+// we pass --auto-approve since we already confirmed.
 func runDbPush(cmd *cobra.Command, args []string) {
 	force, _ := cmd.Flags().GetBool("force")
 	if !confirmPrompt("This will push schema WITHOUT creating migration files. Continue?", force) {
@@ -288,7 +288,7 @@ func runDbPush(cmd *cobra.Command, args []string) {
 	runSqlcGenerate()
 }
 
-// runDbSeed hỗ trợ 2 convention: seed/main.go (go run) hoặc seed/seed.sql (psql).
+// runDbSeed supports 2 conventions: seed/main.go (go run) or seed/seed.sql (psql).
 func runDbSeed(cmd *cobra.Command, args []string) {
 	dbURL := requireDatabaseURL()
 

@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// defaultDevURL: fallback khi không tạo được shadow DB (user thiếu quyền CREATE DATABASE).
+// defaultDevURL: fallback when shadow DB creation fails (e.g. missing CREATE DATABASE privilege).
 const defaultDevURL = "docker://postgres/16/dev"
 
 func resolveDevURL(cmd *cobra.Command) (string, func(), error) {
@@ -41,9 +41,9 @@ func resolveDevURL(cmd *cobra.Command) (string, func(), error) {
 	return shadow, cleanup, nil
 }
 
-// shadowDB tạo database dùng-một-lần (đúng mô hình Prisma shadow database):
-// CREATE -> caller dùng làm dev-url -> cleanup() DROP ngay khi lệnh chạy xong.
-// Tên ngẫu nhiên: không đụng project khác, không cần convention, không cần check tồn tại.
+// shadowDB creates a one-time database (Prisma shadow database model):
+// CREATE -> caller uses it as dev-url -> cleanup() drops it right after.
+// Random name: prevents conflicts, needs no convention, no existence check.
 func shadowDB(targetURL string) (string, func(), error) {
 	u, err := url.Parse(targetURL)
 	if err != nil {
@@ -85,7 +85,7 @@ func shadowPostgres(targetURL string, u *url.URL) (string, func(), error) {
 	su.Path = "/" + name
 
 	cleanup := func() {
-		// WITH (FORCE) đá mọi connection atlas còn sót (pg13+)
+		// WITH (FORCE) kicks out any remaining atlas connections (pg13+)
 		_, _ = admin.Exec(`DROP DATABASE IF EXISTS "` + name + `" WITH (FORCE)`)
 		admin.Close()
 		if verbose {
@@ -118,17 +118,17 @@ func shadowMySQL(targetURL string, u *url.URL) (string, func(), error) {
 		fmt.Printf("[debug] shadow db (mysql) created: %s\n", name)
 	}
 
-	// Clone URL, đổi dbname (MySQL URL format: user:pass@tcp(host:port)/dbname?params)
+	// Clone URL, change dbname (MySQL URL format: user:pass@tcp(host:port)/dbname?params)
 	su := *u
 	su.Path = "/" + name
-	// MySQL cần multiStatements=true để Atlas chạy được nhiều câu trong 1 batch migration
+	// MySQL needs multiStatements=true for Atlas to run multiple statements in a batch
 	q := su.Query()
 	q.Set("multiStatements", "true")
 	q.Set("parseTime", "true")
 	su.RawQuery = q.Encode()
 
 	cleanup := func() {
-		// Tắt mọi connection vào DB trước khi drop (MySQL không có FORCE như pg)
+		// Close all DB connections before dropping (MySQL has no FORCE like pg)
 		_, _ = admin.Exec(fmt.Sprintf("SET FOREIGN_KEY_CHECKS=0"))
 		_, _ = admin.Exec("DROP DATABASE IF EXISTS `" + name + "`")
 		admin.Close()
@@ -144,23 +144,23 @@ func shadowMySQL(targetURL string, u *url.URL) (string, func(), error) {
 func shadowSQLite(targetURL string) (string, func(), error) {
 	noop := func() {}
 
-	// SQLite URL: sqlite://path/to/file.db hoặc file:path/to/file.db
+	// SQLite URL: sqlite://path/to/file.db or file:path/to/file.db
 	u, err := url.Parse(targetURL)
 	if err != nil {
 		return "", noop, err
 	}
 
-	// Tạo file shadow DB cạnh file chính (cùng thư mục) để tránh khác mount point
+	// Create shadow DB next to main file (same dir) to avoid different mount points
 	original := strings.TrimPrefix(u.Path, "/")
 	if original == "" || original == ":memory:" {
-		// In-memory: tạo file shadow DB tạm trong temp dir
+		// In-memory: create temporary shadow DB in temp dir
 		original = filepath.Join(os.TempDir(), "ftpl_main.db")
 	}
 	dir := filepath.Dir(original)
 	name := fmt.Sprintf("ftpl_shadow_%08x.db", rand.Uint32())
 	shadowPath := filepath.Join(dir, name)
 
-	// "CREATE" = kết nối để file được tạo ra (SQLite tự sinh file khi connect)
+	// "CREATE" = connect to trigger file creation (SQLite creates on connect)
 	db, err := sql.Open("sqlite", shadowPath)
 	if err != nil {
 		return "", noop, err
@@ -169,7 +169,7 @@ func shadowSQLite(targetURL string) (string, func(), error) {
 		db.Close()
 		return "", noop, err
 	}
-	db.Close() // Atlas sẽ tự connect lại khi chạy
+	db.Close() // Atlas will connect on its own
 
 	if verbose {
 		fmt.Printf("[debug] shadow db (sqlite) created: %s\n", shadowPath)

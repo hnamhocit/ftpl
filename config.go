@@ -23,13 +23,13 @@ func defaultMigrateConfig() migrateConfig {
 	}
 }
 
-// loadMigrateConfig: env vars thắng default.
-// Production (APP_ENV=production) KHÔNG load .env — env vars là nguồn duy nhất.
+// loadMigrateConfig: env vars override defaults.
+// Production (APP_ENV=production) DOES NOT load .env — env vars are the only source.
 func loadMigrateConfig() migrateConfig {
 	cfg := defaultMigrateConfig()
 
 	if !isProduction() {
-		// godotenv không override env vars đã có sẵn, có expand ${VAR} trong .env.
+		// godotenv does not override existing env vars, and expands ${VAR} in .env.
 		_ = godotenv.Load()
 	}
 	if v := os.Getenv("DB_SCHEMA"); v != "" {
@@ -41,19 +41,19 @@ func loadMigrateConfig() migrateConfig {
 	return cfg
 }
 
-// isProduction: chỉ nhận APP_ENV=prod|production. Mặc định = dev.
+// isProduction: checks for APP_ENV=prod|production. Default is dev.
 func isProduction() bool {
 	v := strings.ToLower(os.Getenv("APP_ENV"))
 	return v == "prod" || v == "production"
 }
 
-// loadDatabaseURL: env thắng (prod chuẩn), .env chỉ là fallback cho dev.
+// loadDatabaseURL: env overrides, .env is just a fallback for dev.
 func loadDatabaseURL() string {
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		return v
 	}
 	if isProduction() {
-		return "" // prod không mò .env
+		return "" // prod does not check .env
 	}
 	_ = godotenv.Load()
 	return os.Getenv("DATABASE_URL")
@@ -70,8 +70,7 @@ func requireDatabaseURL() string {
 	return v
 }
 
-// getFlag trả về flag nếu truyền explicit, ngược lại lấy từ config.
-// migrate.go gọi hàm này — đừng xóa.
+// getFlag returns the explicit flag if set, otherwise from config.
 func getFlag(cmd *cobra.Command, name, fallback string) string {
 	if cmd.Flags().Changed(name) {
 		v, _ := cmd.Flags().GetString(name)
@@ -80,8 +79,8 @@ func getFlag(cmd *cobra.Command, name, fallback string) string {
 	return fallback
 }
 
-// confirmPrompt hỏi y/N, bỏ qua khi force = true.
-// Non-TTY (EOF) -> input rỗng -> false: default an toàn.
+// confirmPrompt asks y/N, skipped when force = true.
+// Non-TTY (EOF) -> empty input -> false: safe default.
 func confirmPrompt(msg string, force bool) bool {
 	if force {
 		return true
