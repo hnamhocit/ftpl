@@ -280,7 +280,7 @@ func selfUpdate(tag string) error {
 	if err := replaceBinary(newBin); err != nil {
 		return err
 	}
-	fmt.Printf("✓ updated to %s — re-run your command\n", tag)
+	fmt.Printf("✓ updated to %s — open a new terminal or run `hash -r` to use the new version\n", tag)
 	return nil
 }
 
