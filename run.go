@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -72,13 +71,35 @@ func requireTemplateProject() {
 
 // ---------- docs generation ----------
 
+// docsHashPath stores the annotation hash on disk so we can skip swag
+// entirely when annotations haven't changed since the last successful build.
+// Saves 15s on every restart / fresh terminal when docs are up to date.
+func docsHashPath() string {
+	return filepath.Join(".ftpl", "docs.hash")
+}
+
+func readCachedHash() string {
+	b, err := os.ReadFile(docsHashPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func writeCachedHash(h string) {
+	_ = os.MkdirAll(filepath.Dir(docsHashPath()), 0o755)
+	_ = os.WriteFile(docsHashPath(), []byte(h+"\n"), 0o644)
+}
+
 // regenDocs invokes swag as a library, so template users never install the swag CLI.
-// swag logs through the standard log package; in normal mode that noise is
-// redirected away and ftpl prints a single summary line instead.
+// swag binds its own logger to os.Stdout at package-init, so the only way to
+// keep dev output clean is an fd-level mute (see mute_unix.go); -v disables it.
 func regenDocs() error {
 	if !verbose {
-		log.SetOutput(io.Discard)
-		defer log.SetOutput(os.Stderr)
+		restore, err := muteStdout()
+		if err == nil {
+			defer restore()
+		}
 	}
 	return gen.New().Build(&gen.Config{
 		SearchDir:       "./",
@@ -123,22 +144,36 @@ func scanAnnotations(root string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-// refreshDocs regenerates swagger docs ONLY when annotations changed since
-// the last call. Returns the current annotation hash.
+// refreshDocs regenerates swagger docs ONLY when annotations changed.
+// Returns the current annotation hash. On first call with a stale or missing
+// cached hash, regenerates; subsequent calls within the same session or
+// across restarts are pure compares (<100ms).
 func refreshDocs(root, lastHash string) string {
 	h := scanAnnotations(root)
-	if h == lastHash {
+
+	// Same session, no change since last call? No-op.
+	if h != "" && h == lastHash {
 		if verbose {
 			fmt.Println("[docs] no annotation changes, skipped")
 		}
 		return h
 	}
+
+	// Different session (lastHash == "") but disk cache matches? Skip the 15s swag pass.
+	if lastHash == "" && h == readCachedHash() {
+		if verbose {
+			fmt.Println("[docs] annotations unchanged on disk, skipped")
+		}
+		return h
+	}
+
 	start := time.Now()
 	if err := regenDocs(); err != nil {
 		fmt.Fprintln(os.Stderr, "[docs] error:", err)
-	} else {
-		fmt.Printf("[docs] regenerated in %s\n", time.Since(start).Round(100*time.Millisecond))
+		return h // don't cache a failed build
 	}
+	writeCachedHash(h)
+	fmt.Printf("[docs] regenerated in %s\n", time.Since(start).Round(100*time.Millisecond))
 	return h
 }
 
