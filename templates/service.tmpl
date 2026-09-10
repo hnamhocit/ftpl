@@ -13,12 +13,15 @@ var ErrNotFound = errors.New("{{.NameSingle}} not found")
 
 // Service contains {{.Name}} business logic.
 type Service struct {
-	repo *Repository
+	repo  *Repository
+	redis any // *cache.Client hoặc nil — tránh import trực tiếp ở template
+	minio any // *storage.Client hoặc nil
 }
 
-// NewService creates a Service with the given repository.
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+// NewService creates a Service. redis/minio may be nil when infra is unconfigured;
+// methods guard with `if s.redis != nil` before use (no panic on nil).
+func NewService(repo *Repository, redis, minio any) *Service {
+	return &Service{repo: repo, redis: redis, minio: minio}
 }
 {{if .CRUD}}
 // List returns all {{.Name}}.

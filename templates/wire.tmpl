@@ -2,8 +2,6 @@
 package main
 
 import (
-	"github.com/jmoiron/sqlx"
-
 	"{{.ModulePath}}/internal/server"
 {{- range .Features}}
 	"{{$.ModulePath}}/internal/features/{{.}}"
@@ -11,10 +9,10 @@ import (
 )
 
 // features wires all registered features with their dependencies.
-func features(db *sqlx.DB) []server.Feature {
+func features(deps server.Deps) []server.Feature {
 	return []server.Feature{
 {{- range .Features}}
-		{{.}}.NewFeature(db),
+		{{.}}.NewModule(deps),
 {{- end}}
 	}
 }

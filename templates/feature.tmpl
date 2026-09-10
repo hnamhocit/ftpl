@@ -2,7 +2,8 @@ package {{.Name}}
 
 import (
 	"github.com/gofiber/fiber/v3"
-	"github.com/jmoiron/sqlx"
+
+	"{{.ModulePath}}/internal/server"
 )
 
 // Feature wires together all {{.Name}} components.
@@ -10,10 +11,12 @@ type Feature struct {
 	Handler *Handler
 }
 
-// NewFeature creates the {{.Name}} feature with its dependencies.
-func NewFeature(db *sqlx.DB) *Feature {
-	repo := NewRepository(db)
-	svc := NewService(repo)
+// NewModule creates the {{.Name}} feature with its dependencies.
+// Repo chỉ cần db; service nhận thêm redis/minio (nil khi không cấu hình) —
+// tầng service quyết định dùng hay không, tầng repo không biết gì về chúng.
+func NewModule(deps server.Deps) *Feature {
+	repo := NewRepository(deps.DB)
+	svc := NewService(repo, deps.Redis, deps.Minio)
 	return &Feature{Handler: NewHandler(svc)}
 }
 
