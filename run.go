@@ -70,7 +70,7 @@ func regenDocs() error {
 		MainAPIFile:     "./cmd/server/main.go",
 		OutputDir:       "./docs",
 		OutputTypes:     []string{"go", "json"},
-		ParseDependency: true,
+		ParseDependency: 1,
 	})
 }
 
