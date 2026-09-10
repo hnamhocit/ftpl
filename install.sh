@@ -50,8 +50,19 @@ else
 fi
 
 cd "$SRC"
-echo "==> Building $BIN..."
-go build -o "$BIN" .
+
+# --- build metadata (injected via -ldflags into package main variables) ---
+# `git describe --tags --always` returns the nearest tag, or the commit hash
+# if no tag is reachable — so a plain dev checkout produces version "dev"
+# (which is exactly what the auto-update-check treats as "skip, I track main").
+VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
+COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo none)"
+DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
+
+echo "==> Building $BIN (${VERSION} @ ${COMMIT})..."
+go build -ldflags "${LDFLAGS}" -o "$BIN" .
+
 
 # --- install (no sudo by default) ---
 mkdir -p "$DIR"
@@ -87,4 +98,4 @@ esac
 
 echo
 echo "Done. Try: ftpl doctor"
-# trap cleanup EXIT tự xóa $TMP ở đây
+# trap cleanup EXIT wipes $TMP here

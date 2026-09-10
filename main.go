@@ -23,8 +23,6 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		migrateCfg = loadMigrateConfig()
 		if verbose {
-			// migrateConfig không còn field DevURL (dev-url giờ là shadow db tự tạo).
-			// In ra "shadow db" để debug vẫn rõ, và không compile error.
 			fmt.Printf("[debug] config: dev_url=shadow db schema=%s dir=%s\n",
 				migrateCfg.Schema, migrateCfg.Dir)
 		}
