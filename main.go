@@ -71,7 +71,7 @@ func init() {
 	rootCmd.PersistentFlags().String("schema", "", "override schema file path")
 	rootCmd.PersistentFlags().String("dir", "", "override migrations directory")
 
-	rootCmd.AddCommand(generateCmd, deleteResourceCmd, newCmd, migrateCmd, dbCmd, doctorCmd)
+	rootCmd.AddCommand(generateCmd, deleteResourceCmd, newCmd, migrateCmd, dbCmd, doctorCmd, runCmd)
 	generateCmd.AddCommand(resourceCmd)
 
 	resourceCmd.Flags().Bool("no-tests", false, "skip test files")
