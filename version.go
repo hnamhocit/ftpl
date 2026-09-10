@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -285,6 +286,8 @@ func selfUpdate(tag string) error {
 
 // replaceBinary swaps the running executable. Renaming a running binary is
 // safe on Unix AND Windows (the old process keeps its open handle/inode).
+// When /tmp and install dir are on different mounts (EXDEV), fall back to
+// copy + delete — the user sees no difference.
 func replaceBinary(newBin string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -298,13 +301,55 @@ func replaceBinary(newBin string) error {
 	if err := os.Rename(exe, old); err != nil {
 		return fmt.Errorf("move current binary aside: %w", err)
 	}
+
+	// Try fast rename first (same filesystem).
 	if err := os.Rename(newBin, exe); err != nil {
-		_ = os.Rename(old, exe) // roll back
-		return fmt.Errorf("install new binary: %w", err)
+		// Cross-device link (e.g. /tmp -> /home): copy + delete.
+		if isCrossDevice(err) {
+			if cerr := copyFile(newBin, exe); cerr != nil {
+				_ = os.Rename(old, exe) // roll back
+				return fmt.Errorf("copy new binary: %w", cerr)
+			}
+		} else {
+			_ = os.Rename(old, exe) // roll back
+			return fmt.Errorf("install new binary: %w", err)
+		}
 	}
+
 	_ = os.Chmod(exe, 0o755)
 	_ = os.Remove(old) // fails on Windows while process lives; cleaned next update
+	_ = os.Remove(newBin)
 	return nil
+}
+
+// isCrossDevice detects EXDEV (cross-device link) errors from rename(2).
+func isCrossDevice(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Linux/Darwin: "invalid cross-device link" or syscall.EXDEV
+	return strings.Contains(err.Error(), "cross-device link") ||
+		strings.Contains(err.Error(), "EXDEV")
+}
+
+// copyFile copies src to dst, preserving permissions.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }
 
 func streamCmd(dir, name string, args ...string) error {
