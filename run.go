@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -29,7 +33,7 @@ var runDevCmd = &cobra.Command{
 	Use:   "dev",
 	Short: "Live-reload dev server: regenerates docs and restarts on every save",
 	Long: "All-in-one development mode (air-style, bundled):\n" +
-		"  - regenerates swagger docs in-process (swag as a library) on .go changes\n" +
+		"  - regenerates swagger docs only when annotations actually changed\n" +
 		"  - rebuilds and restarts the server automatically\n" +
 		"  - no manual build step ever; Ctrl-C to stop",
 	Run: runDev,
@@ -45,13 +49,16 @@ func init() {
 	runCmd.AddCommand(runDevCmd, runBuildCmd)
 }
 
-// skipWatchDirs are never watched.
-// "docs" MUST be skipped: swag rewrites docs/docs.go on every regeneration,
-// and watching it would create an infinite loop (write -> event -> regen -> write...).
+// skipWatchDirs are never watched nor scanned.
+// "docs" MUST be excluded: swag rewrites docs/docs.go on every regeneration,
+// and including it would create an infinite loop (write -> event -> regen -> write...).
 var skipWatchDirs = map[string]bool{
 	"docs": true, ".git": true, ".ftpl": true, "bin": true,
 	"node_modules": true, ".idea": true, ".vscode": true, "tmp": true,
 }
+
+// annotationRe matches swag annotation comments, e.g. "//	@Summary	Liveness probe".
+var annotationRe = regexp.MustCompile(`^\s*//\s*@`)
 
 // requireTemplateProject fails early when run from the wrong directory.
 func requireTemplateProject() {
@@ -63,8 +70,16 @@ func requireTemplateProject() {
 	}
 }
 
+// ---------- docs generation ----------
+
 // regenDocs invokes swag as a library, so template users never install the swag CLI.
+// swag logs through the standard log package; in normal mode that noise is
+// redirected away and ftpl prints a single summary line instead.
 func regenDocs() error {
+	if !verbose {
+		log.SetOutput(io.Discard)
+		defer log.SetOutput(os.Stderr)
+	}
 	return gen.New().Build(&gen.Config{
 		SearchDir:       "./",
 		MainAPIFile:     "./cmd/server/main.go",
@@ -73,6 +88,61 @@ func regenDocs() error {
 		ParseDependency: 1,
 	})
 }
+
+// scanAnnotations hashes every swag annotation comment in the project.
+// Cheap (raw file reads, no Go parsing) and catches added, edited AND
+// deleted annotations — so docs never go stale silently.
+func scanAnnotations(root string) string {
+	h := sha256.New()
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipWatchDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if annotationRe.MatchString(line) {
+				io.WriteString(h, p)
+				io.WriteString(h, line)
+				io.WriteString(h, "\n")
+			}
+		}
+		return nil
+	})
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+// refreshDocs regenerates swagger docs ONLY when annotations changed since
+// the last call. Returns the current annotation hash.
+func refreshDocs(root, lastHash string) string {
+	h := scanAnnotations(root)
+	if h == lastHash {
+		if verbose {
+			fmt.Println("[docs] no annotation changes, skipped")
+		}
+		return h
+	}
+	start := time.Now()
+	if err := regenDocs(); err != nil {
+		fmt.Fprintln(os.Stderr, "[docs] error:", err)
+	} else {
+		fmt.Printf("[docs] regenerated in %s\n", time.Since(start).Round(100*time.Millisecond))
+	}
+	return h
+}
+
+// ---------- dev binary + supervisor ----------
 
 // devBinaryPath is the throwaway binary used by dev mode.
 // It lives in .ftpl/ (gitignored) and is removed on exit.
@@ -117,15 +187,13 @@ func runDev(cmd *cobra.Command, args []string) {
 	ctx, stopSig := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSig()
 
+	root, _ := os.Getwd()
 	bin := devBinaryPath()
 	defer os.Remove(bin) // leave no trace behind
 	var sup supervisor
 
-	// 1. Initial docs generation.
-	fmt.Println("[docs] generating...")
-	if err := regenDocs(); err != nil {
-		fatal("docs", err)
-	}
+	// 1. Initial docs generation (always: fresh clone has no docs/).
+	docsHash := refreshDocs(root, "")
 
 	// 2. Initial compile + start. Users never run a build command in dev mode.
 	fmt.Println("[build] compiling server...")
@@ -144,7 +212,6 @@ func runDev(cmd *cobra.Command, args []string) {
 	}
 	defer w.Close()
 
-	root, _ := os.Getwd()
 	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
@@ -170,7 +237,7 @@ func runDev(cmd *cobra.Command, args []string) {
 			case <-reload: // drain events that arrived during the window
 			default:
 			}
-			doReload(&sup, bin)
+			doReload(&sup, bin, root, &docsHash)
 		}
 	}()
 
@@ -199,14 +266,11 @@ func runDev(cmd *cobra.Command, args []string) {
 	}
 }
 
-// doReload regenerates docs, rebuilds the binary and restarts the server.
+// doReload regenerates docs when needed, rebuilds and restarts the server.
 // If the build fails, the PREVIOUS server keeps running (air-like behavior),
 // so a typo never kills the dev session.
-func doReload(sup *supervisor, bin string) {
-	fmt.Println("[docs] regenerating...")
-	if err := regenDocs(); err != nil {
-		fmt.Fprintln(os.Stderr, "[docs] error:", err)
-	}
+func doReload(sup *supervisor, bin, root string, docsHash *string) {
+	*docsHash = refreshDocs(root, *docsHash)
 
 	fmt.Println("[build] recompiling...")
 	if err := compileTo(bin); err != nil {
@@ -238,10 +302,11 @@ func compileTo(bin string) error {
 func runBuild(cmd *cobra.Command, args []string) {
 	requireTemplateProject()
 
-	fmt.Println("[docs] generating...")
+	start := time.Now()
 	if err := regenDocs(); err != nil {
 		fatal("docs", err)
 	}
+	fmt.Printf("[docs] regenerated in %s\n", time.Since(start).Round(100*time.Millisecond))
 
 	out := filepath.Join("bin", "server")
 	if runtime.GOOS == "windows" {
