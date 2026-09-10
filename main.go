@@ -23,8 +23,10 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		migrateCfg = loadMigrateConfig()
 		if verbose {
-			fmt.Printf("[debug] config: dev_url=%s schema=%s dir=%s\n",
-				migrateCfg.DevURL, migrateCfg.Schema, migrateCfg.Dir)
+			// migrateConfig không còn field DevURL (dev-url giờ là shadow db tự tạo).
+			// In ra "shadow db" để debug vẫn rõ, và không compile error.
+			fmt.Printf("[debug] config: dev_url=shadow db schema=%s dir=%s\n",
+				migrateCfg.Schema, migrateCfg.Dir)
 		}
 	},
 }
@@ -45,7 +47,7 @@ var resourceCmd = &cobra.Command{
 
 var deleteResourceCmd = &cobra.Command{
 	Use:     "dr <name>",
-	Aliases: []string{"rm", "delete"}, // FIX (4): bỏ "delete resource" có khoảng trắng
+	Aliases: []string{"rm", "delete"},
 	Short:   "Delete a resource",
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
@@ -65,9 +67,7 @@ var newCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 
-	// FIX (3): chuyển 3 flag override lên rootCmd để dbCmd cũng dùng được.
-	// Trước đây nằm ở migrateCmd.PersistentFlags() → dbCmd là "anh em" của migrateCmd, không thừa hưởng.
-	rootCmd.PersistentFlags().String("dev-url", "", "override dev database URL")
+	rootCmd.PersistentFlags().String("dev-url", "", "override dev database URL (skip shadow db)")
 	rootCmd.PersistentFlags().String("schema", "", "override schema file path")
 	rootCmd.PersistentFlags().String("dir", "", "override migrations directory")
 

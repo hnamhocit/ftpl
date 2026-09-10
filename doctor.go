@@ -45,9 +45,9 @@ func runDoctor() {
 		}
 	}
 
-	// Preset đang active — chỉ hiện thông tin, không giải thích.
-	fmt.Printf("\n  preset  dev_url=%s\n          schema=%s  dir=%s\n",
-		migrateCfg.DevURL, migrateCfg.Schema, migrateCfg.Dir)
+	fmt.Printf("\n  preset  dev_url=auto (shadow db per run, fallback %s)\n          schema=%s  dir=%s\n",
+		defaultDevURL, migrateCfg.Schema, migrateCfg.Dir)
+	fmt.Println("  (db chạy docker compose hay local là việc của bạn, ftpl không quan tâm)")
 
 	fmt.Printf("\n%d/%d checks passed\n", pass, len(checks))
 	if pass < len(checks) {

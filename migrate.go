@@ -107,7 +107,12 @@ func runMigrateDev(cmd *cobra.Command, args []string) {
 	atlas := mustAtlas()
 	dbURL := requireDatabaseURL()
 
-	devURL := getFlag(cmd, "dev-url", migrateCfg.DevURL)
+	devURL, cleanupDev, err := resolveDevURL(cmd)
+	if err != nil {
+		fatal("dev database", err)
+	}
+	defer cleanupDev()
+
 	schema := getFlag(cmd, "schema", migrateCfg.Schema)
 	dir := getFlag(cmd, "dir", migrateCfg.Dir)
 
@@ -128,7 +133,12 @@ func runMigrateDev(cmd *cobra.Command, args []string) {
 func runMigrateDiff(cmd *cobra.Command, args []string) {
 	atlas := mustAtlas()
 
-	devURL := getFlag(cmd, "dev-url", migrateCfg.DevURL)
+	devURL, cleanupDev, err := resolveDevURL(cmd)
+	if err != nil {
+		fatal("dev database", err)
+	}
+	defer cleanupDev()
+
 	schema := getFlag(cmd, "schema", migrateCfg.Schema)
 	dir := getFlag(cmd, "dir", migrateCfg.Dir)
 
@@ -167,7 +177,13 @@ func runMigrateDown(cmd *cobra.Command, args []string) {
 
 	atlas := mustAtlas()
 	dbURL := requireDatabaseURL()
-	devURL := getFlag(cmd, "dev-url", migrateCfg.DevURL)
+
+	devURL, cleanupDev, err := resolveDevURL(cmd)
+	if err != nil {
+		fatal("dev database", err)
+	}
+	defer cleanupDev()
+
 	dir := getFlag(cmd, "dir", migrateCfg.Dir)
 
 	if err := runAtlas(atlas, "migrate", "down", "1",
@@ -216,7 +232,13 @@ func runMigrateStatus(cmd *cobra.Command, args []string) {
 
 func runMigrateLint(cmd *cobra.Command, args []string) {
 	atlas := mustAtlas()
-	devURL := getFlag(cmd, "dev-url", migrateCfg.DevURL)
+
+	devURL, cleanupDev, err := resolveDevURL(cmd)
+	if err != nil {
+		fatal("dev database", err)
+	}
+	defer cleanupDev()
+
 	dir := getFlag(cmd, "dir", migrateCfg.Dir)
 
 	if err := runAtlas(atlas, "migrate", "lint",
@@ -228,11 +250,9 @@ func runMigrateLint(cmd *cobra.Command, args []string) {
 
 func runMigrateValidate(cmd *cobra.Command, args []string) {
 	atlas := mustAtlas()
-	devURL := getFlag(cmd, "dev-url", migrateCfg.DevURL)
 	dir := getFlag(cmd, "dir", migrateCfg.Dir)
 
-	if err := runAtlas(atlas, "migrate", "validate",
-		"--dev-url", devURL, "--dir", "file://"+dir); err != nil {
+	if err := runAtlas(atlas, "migrate", "validate", "--dir", "file://"+dir); err != nil {
 		fatal("migrate validate", err)
 	}
 	fmt.Println("✓ Migration directory is valid")
@@ -249,7 +269,13 @@ func runDbPush(cmd *cobra.Command, args []string) {
 
 	atlas := mustAtlas()
 	dbURL := requireDatabaseURL()
-	devURL := getFlag(cmd, "dev-url", migrateCfg.DevURL)
+
+	devURL, cleanupDev, err := resolveDevURL(cmd)
+	if err != nil {
+		fatal("dev database", err)
+	}
+	defer cleanupDev()
+
 	schema := getFlag(cmd, "schema", migrateCfg.Schema)
 
 	if err := runAtlas(atlas, "schema", "apply",

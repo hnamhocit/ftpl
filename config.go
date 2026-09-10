@@ -10,7 +10,6 @@ import (
 )
 
 type migrateConfig struct {
-	DevURL string
 	Schema string
 	Dir    string
 }
@@ -19,19 +18,20 @@ var migrateCfg migrateConfig
 
 func defaultMigrateConfig() migrateConfig {
 	return migrateConfig{
-		DevURL: "docker://postgres/16/dev",
 		Schema: "schema.sql",
 		Dir:    "migrations",
 	}
 }
 
+// loadMigrateConfig: env vars thắng default.
+// Production (APP_ENV=production) KHÔNG load .env — env vars là nguồn duy nhất.
 func loadMigrateConfig() migrateConfig {
 	cfg := defaultMigrateConfig()
 
 	if !isProduction() {
+		// godotenv không override env vars đã có sẵn, có expand ${VAR} trong .env.
 		_ = godotenv.Load()
 	}
-
 	if v := os.Getenv("DB_SCHEMA"); v != "" {
 		cfg.Schema = v
 	}
@@ -70,6 +70,8 @@ func requireDatabaseURL() string {
 	return v
 }
 
+// getFlag trả về flag nếu truyền explicit, ngược lại lấy từ config.
+// migrate.go gọi hàm này — đừng xóa.
 func getFlag(cmd *cobra.Command, name, fallback string) string {
 	if cmd.Flags().Changed(name) {
 		v, _ := cmd.Flags().GetString(name)
@@ -78,6 +80,8 @@ func getFlag(cmd *cobra.Command, name, fallback string) string {
 	return fallback
 }
 
+// confirmPrompt hỏi y/N, bỏ qua khi force = true.
+// Non-TTY (EOF) -> input rỗng -> false: default an toàn.
 func confirmPrompt(msg string, force bool) bool {
 	if force {
 		return true
