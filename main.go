@@ -26,6 +26,7 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("[debug] config: dev_url=shadow db schema=%s dir=%s\n",
 				migrateCfg.Schema, migrateCfg.Dir)
 		}
+		checkUpdateOncePerSession(cmd)
 	},
 }
 
