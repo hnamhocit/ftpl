@@ -6,17 +6,15 @@ import (
 	"{{.ModulePath}}/internal/server"
 )
 
-// Feature wires together all {{.Name}} components.
 type Feature struct {
 	Handler *Handler
 }
 
 // NewModule creates the {{.Name}} feature with its dependencies.
-// Repo only needs db; service gets redis/minio (nil if not configured) —
-// service decides whether to use them, repo knows nothing about them.
 func NewModule(deps server.Deps) *Feature {
 	repo := NewRepository(deps.DB)
-	svc := NewService(repo, deps.Redis, deps.Minio)
+	svc := NewService(repo)
+	// Khi cần redis/minio, đổi thành: svc := NewService(repo, deps.Redis, deps.Minio)
 	return &Feature{Handler: NewHandler(svc)}
 }
 
@@ -29,7 +27,5 @@ func (f *Feature) RegisterRoutes(router fiber.Router) {
 	g.Post("/", f.Handler.Create)
 	g.Put("/:id", f.Handler.Update)
 	g.Delete("/:id", f.Handler.Delete)
-{{- else}}
-	// TODO: register {{.Name}} routes here
 {{- end}}
 }

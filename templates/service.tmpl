@@ -1,29 +1,22 @@
 package {{.Name}}
-{{- if .CRUD}}
 
 import (
 	"context"
 	"database/sql"
 	"errors"
-
-	"{{.ModulePath}}/internal/cache"
-	"{{.ModulePath}}/internal/storage"
 )
 
 // ErrNotFound is returned when the requested {{.NameSingle}} does not exist.
 var ErrNotFound = errors.New("{{.NameSingle}} not found")
-{{- end}}
 
 // Service contains {{.Name}} business logic.
 type Service struct {
-	repo  *Repository
-	redis *cache.Client   // nil when REDIS_URL unset; check .Available() before use
-	minio *storage.Client // nil when MINIO_ENDPOINT unset; check .Available() before use
+	repo *Repository
 }
 
-// NewService creates a Service. redis/minio may be nil when infra is unconfigured.
-func NewService(repo *Repository, redis *cache.Client, minio *storage.Client) *Service {
-	return &Service{repo: repo, redis: redis, minio: minio}
+// NewService creates a Service.
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 {{if .CRUD}}
 // List returns all {{.Name}}.
@@ -74,9 +67,6 @@ func (s *Service) Update(ctx context.Context, id int64, req UpdateRequest) (*Res
 
 // Delete deletes a {{.NameSingle}}.
 func (s *Service) Delete(ctx context.Context, id int64) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return err
-	}
-	return nil
+	return s.repo.Delete(ctx, id)
 }
 {{- end}}
