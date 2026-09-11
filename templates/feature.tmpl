@@ -14,7 +14,6 @@ type Feature struct {
 func NewModule(deps server.Deps) *Feature {
 	repo := NewRepository(deps.DB)
 	svc := NewService(repo)
-	// Khi cần redis/minio, đổi thành: svc := NewService(repo, deps.Redis, deps.Minio)
 	return &Feature{Handler: NewHandler(svc)}
 }
 
