@@ -10,6 +10,9 @@ import (
 
 	"{{.ModulePath}}/internal/httpx"
 )
+{{- else}}
+
+import "github.com/gofiber/fiber/v3"
 {{- end}}
 
 // Handler contains {{.Name}} HTTP handlers.
@@ -52,9 +55,9 @@ func (h *Handler) Get(c fiber.Ctx) error {
 
 // Create creates a new {{.NameSingle}}.
 func (h *Handler) Create(c fiber.Ctx) error {
-	var req CreateRequest
-	if err := c.Bind().Body(&req); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid request body")
+	req, err := httpx.Bind[CreateRequest](c)
+	if err != nil {
+		return err // already sent 400/422 response
 	}
 
 	item, err := h.svc.Create(c.Context(), req)
@@ -72,9 +75,9 @@ func (h *Handler) Update(c fiber.Ctx) error {
 		return httpx.Error(c, fiber.StatusBadRequest, "invalid id")
 	}
 
-	var req UpdateRequest
-	if err := c.Bind().Body(&req); err != nil {
-		return httpx.Error(c, fiber.StatusBadRequest, "invalid request body")
+	req, err := httpx.Bind[UpdateRequest](c)
+	if err != nil {
+		return err
 	}
 
 	item, err := h.svc.Update(c.Context(), id, req)

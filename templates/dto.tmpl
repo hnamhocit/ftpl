@@ -1,19 +1,24 @@
 package {{.Name}}
-{{if .CRUD}}
-// Response is the response payload for {{.NameSingle}} data.
-type Response struct {
-	ID int64 `json:"id"`
-}
+{{- if .CRUD}}
 
-// CreateRequest is the request body for creating a {{.NameSingle}}.
+// CreateRequest is the payload for creating a {{.NameSingle}}.
 type CreateRequest struct {
-	// TODO: add fields
+	Name  string `json:"name"  validate:"required,min=1,max=255"`
+	Email string `json:"email" validate:"required,email"`
 }
 
-// UpdateRequest is the request body for updating a {{.NameSingle}}.
+// UpdateRequest is the payload for updating a {{.NameSingle}}.
 type UpdateRequest struct {
-	// TODO: add fields
+	Name  string `json:"name"  validate:"required,min=1,max=255"`
+	Email string `json:"email" validate:"required,email"`
+}
+
+// Response is the public shape of a {{.NameSingle}}.
+type Response struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 {{- else}}
-// TODO: define request/response DTOs for {{.Name}}
+
 {{- end}}
