@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// templateModule is the module path of the upstream template.
+// Every cloned .go file imports packages under this path; after renaming the
+// module we MUST rewrite them, otherwise Go resolves them as an EXTERNAL
+// dependency and silently downloads the public template repo (Frankenstein
+// build: local files + remote packages).
+const templateModule = "github.com/hnamhocit/fiber-template"
+
 var newCmd = &cobra.Command{
 	Use:   "new <project-name>",
 	Short: "Create a new Fiber project from the production template",
@@ -20,12 +26,11 @@ var newCmd = &cobra.Command{
 }
 
 type newProjectConfig struct {
-	Name        string
-	Module      string // e.g. github.com/username/project
-	Database    string // postgres | mysql | sqlite
-	Redis       bool
-	Minio       bool
-	InstallDeps bool
+	Name     string
+	Module   string // e.g. github.com/username/project
+	Database string // postgres | mysql | sqlite
+	Redis    bool
+	Minio    bool
 }
 
 func runNew(cmd *cobra.Command, args []string) {
@@ -59,20 +64,18 @@ func runNew(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("✓ Project created at ./" + cfg.Name)
 
-	// Ask to cd + install deps
-	cfg.InstallDeps = askBool("Download Go dependencies now?", true)
-	if cfg.InstallDeps {
+	// A child process cannot change the parent shell's cwd, so "cd" is
+	// impossible from here; the closest real help is resolving deps in place.
+	if askBool("Download Go dependencies now?", true) {
 		installDependencies(cfg.Name)
 	}
 
-	// Print next steps
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Printf("  cd %s\n", cfg.Name)
 	if cfg.Database != "sqlite" {
 		fmt.Println("  docker compose up -d    # start infra")
 	}
-	fmt.Println("  ftpl migrate init       # (if fresh DB)")
 	fmt.Println("  ftpl run dev            # start dev server")
 	fmt.Println()
 	fmt.Println("For production, update .env with your credentials.")
@@ -98,106 +101,83 @@ func askDatabase() string {
 }
 
 func askModulePath(projectName string) string {
-	// Try to guess GitHub username from git config
-	username := ""
+	username := "yourname"
 	if out, err := exec.Command("git", "config", "user.name").Output(); err == nil {
-		// Normalize: lowercase, replace spaces with dashes
-		username = strings.ToLower(strings.TrimSpace(string(out)))
-		username = strings.ReplaceAll(username, " ", "-")
-	}
-	if username == "" {
-		username = "yourname"
+		u := strings.ToLower(strings.TrimSpace(string(out)))
+		u = strings.ReplaceAll(u, " ", "-")
+		if u != "" {
+			username = u
+		}
 	}
 	def := fmt.Sprintf("github.com/%s/%s", username, projectName)
 
-	var path string
+	path := def
 	err := huh.NewInput().
 		Title("Module path").
+		Description("Go module path for the new project").
 		Value(&path).
-		Placeholder(def).
 		Run()
 	if err != nil {
 		canceled()
 	}
-	if path == "" {
+	if strings.TrimSpace(path) == "" {
 		path = def
 	}
-	return path
+	return strings.TrimSpace(path)
 }
 
 // ---------- clone + customize ----------
 
 func cloneAndCustomize(cfg newProjectConfig) error {
-	repo := "https://github.com/hnamhocit/fiber-template.git"
-
 	fmt.Println("→ Cloning template...")
-	if err := streamCmd("", "git", "clone", "--depth", "1", "--quiet", repo, cfg.Name); err != nil {
+	if err := streamCmd("", "git", "clone", "--depth", "1", "--quiet", templateModule+".git", cfg.Name); err != nil {
 		return fmt.Errorf("clone template: %w", err)
 	}
-
-	// Fresh git history
 	if err := os.RemoveAll(filepath.Join(cfg.Name, ".git")); err != nil {
 		return fmt.Errorf("remove .git: %w", err)
 	}
 
-	// 1. Remove unused packages entirely
+	// ORDER MATTERS:
+	// 1. scrub first — its matchers expect the OLD import paths
+	// 2. then rewrite old module path -> new module path everywhere
+	// 3. then rename the module line in go.mod
 	if err := removeUnusedPackages(cfg); err != nil {
 		return err
 	}
-
-	// 2. Update module path
+	if err := rewriteModulePaths(cfg); err != nil {
+		return err
+	}
 	if err := updateGoMod(cfg); err != nil {
 		return err
 	}
-
-	// 3. Generate .env from example
 	if err := updateDotEnv(cfg); err != nil {
 		return err
 	}
-
-	// 4. Trim docker-compose.yaml
 	if err := updateDockerCompose(cfg); err != nil {
 		return err
 	}
-
-	// 5. Update README title
 	updateReadmeTitle(cfg)
-
-	// 6. Init fresh git repo
 	initGitRepo(cfg.Name)
 
 	return nil
 }
 
-// removeUnusedPackages deletes entire package folders and scrubs their
-// references from files that import them. This is the key difference
-// from just commenting out env vars — no unused code ships with the project.
+// ---------- pruning: delete packages + scrub references ----------
+
+// removeUnusedPackages deletes entire package folders for disabled features
+// and scrubs every reference to them. No dead code ships with the project.
 func removeUnusedPackages(cfg newProjectConfig) error {
 	fmt.Println("→ Pruning unused packages...")
 
 	if !cfg.Redis {
-		// Delete cache package
 		if err := os.RemoveAll(filepath.Join(cfg.Name, "internal", "cache")); err != nil {
 			return err
 		}
-		// Delete redis storage file in server
 		_ = os.Remove(filepath.Join(cfg.Name, "internal", "server", "redisstorage.go"))
-
-		// Scrub imports + references
-		if err := scrubRedis(filepath.Join(cfg.Name, "internal", "bootstrap", "infra.go")); err != nil {
-			return err
-		}
-		if err := scrubRedis(filepath.Join(cfg.Name, "internal", "bootstrap", "health.go")); err != nil {
-			return err
-		}
-		if err := scrubRedis(filepath.Join(cfg.Name, "internal", "server", "deps.go")); err != nil {
-			return err
-		}
-		if err := scrubRedis(filepath.Join(cfg.Name, "internal", "server", "server.go")); err != nil {
-			return err
-		}
-		if err := scrubRedis(filepath.Join(cfg.Name, "cmd", "server", "main.go")); err != nil {
-			return err
+		for _, f := range scrubTargets() {
+			if err := scrubFile(f, dropRedis, transformDepsLine); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -205,114 +185,120 @@ func removeUnusedPackages(cfg newProjectConfig) error {
 		if err := os.RemoveAll(filepath.Join(cfg.Name, "internal", "storage")); err != nil {
 			return err
 		}
-		if err := scrubMinio(filepath.Join(cfg.Name, "internal", "bootstrap", "infra.go")); err != nil {
-			return err
-		}
-		if err := scrubMinio(filepath.Join(cfg.Name, "internal", "bootstrap", "health.go")); err != nil {
-			return err
-		}
-		if err := scrubMinio(filepath.Join(cfg.Name, "internal", "server", "deps.go")); err != nil {
-			return err
-		}
-		if err := scrubMinio(filepath.Join(cfg.Name, "cmd", "server", "main.go")); err != nil {
-			return err
+		for _, f := range scrubTargets() {
+			if err := scrubFile(f, dropMinio, transformDepsLine); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-// ---------- scrubbers: line-by-line, no regex ----------
-
-// scrubRedis removes lines referencing Redis/cache from a file.
-// Skips empty files gracefully.
-func scrubRedis(path string) error {
-	return scrubFile(path, func(line string) bool {
-		return strings.Contains(line, `"github.com/hnamhocit/fiber-template/internal/cache"`) ||
-			strings.Contains(line, "cache.") ||
-			strings.Contains(line, "Redis ") || // field declaration like `Redis *cache.Client`
-			strings.Contains(line, "Redis:") || // struct literal `Redis: infra.Redis`
-			strings.Contains(line, ".Redis") || // access `deps.Redis`, `infra.Redis`
-			strings.Contains(line, "RedisEnabled") ||
-			strings.Contains(line, "deps.Redis") ||
-			strings.Contains(line, "infra.Redis") ||
-			strings.Contains(line, `Name: "redis"`)
-	})
+func scrubTargets() []string {
+	return []string{
+		filepath.Join("internal", "bootstrap", "infra.go"),
+		filepath.Join("internal", "bootstrap", "health.go"),
+		filepath.Join("internal", "server", "deps.go"),
+		filepath.Join("internal", "server", "server.go"),
+		filepath.Join("cmd", "server", "main.go"),
+	}
 }
 
-func scrubMinio(path string) error {
-	return scrubFile(path, func(line string) bool {
-		return strings.Contains(line, `"github.com/hnamhocit/fiber-template/internal/storage"`) ||
-			strings.Contains(line, "storage.") ||
-			strings.Contains(line, "Minio ") ||
-			strings.Contains(line, "Minio:") ||
-			strings.Contains(line, ".Minio") ||
-			strings.Contains(line, "MinioEnabled") ||
-			strings.Contains(line, "deps.Minio") ||
-			strings.Contains(line, "infra.Minio") ||
-			strings.Contains(line, `Name: "minio"`)
-	})
+func dropRedis(line string) bool {
+	return strings.Contains(line, "/internal/cache") ||
+		strings.Contains(line, ".Redis") ||
+		strings.Contains(line, "Redis ") ||
+		strings.Contains(line, "RedisEnabled") ||
+		strings.Contains(line, `Name: "redis"`)
 }
 
-// scrubFile reads path, drops lines matched by shouldDrop, rewrites.
-// Also removes empty `if` blocks that become `if <cond> { }` after scrubbing.
-func scrubFile(path string, shouldDrop func(string) bool) error {
-	f, err := os.Open(path)
+func dropMinio(line string) bool {
+	return strings.Contains(line, "/internal/storage") ||
+		strings.Contains(line, ".Minio") ||
+		strings.Contains(line, "Minio ") ||
+		strings.Contains(line, "MinioEnabled") ||
+		strings.Contains(line, `Name: "minio"`)
+}
+
+// transformDepsLine removes Redis/Minio fields from the one-line Deps
+// literal in main.go instead of dropping the whole line:
+//
+//	deps := server.Deps{Cfg: cfg, DB: infra.DB, Redis: infra.Redis, Minio: infra.Minio}
+//	-> deps := server.Deps{Cfg: cfg, DB: infra.DB}
+func transformDepsLine(line string) string {
+	if !strings.Contains(line, "server.Deps{") {
+		return line
+	}
+	for _, pat := range []string{
+		"Redis: infra.Redis, ", "Redis: infra.Redis,", "Redis: infra.Redis",
+		"Minio: infra.Minio, ", "Minio: infra.Minio,", "Minio: infra.Minio",
+	} {
+		line = strings.ReplaceAll(line, pat, "")
+	}
+	return line
+}
+
+// scrubFile rewrites path: lines matched by drop are removed — and when a
+// dropped line opens a block (`if x {`), the WHOLE block is removed so no
+// orphan closing brace survives. Deps-literal lines go through transform.
+func scrubFile(path string, drop func(string) bool, transform func(string) string) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
-	defer f.Close()
 
-	var kept []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if shouldDrop(line) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	// Collapse empty if/else blocks that were just pruned.
-	kept = collapseEmptyBlocks(kept)
-
-	return os.WriteFile(path, []byte(strings.Join(kept, "\n")+"\n"), 0644)
-}
-
-// collapseEmptyBlocks removes patterns like:
-//
-//	if foo {
-//	}
-//
-// (with only whitespace between braces)
-func collapseEmptyBlocks(lines []string) []string {
+	lines := strings.Split(string(data), "\n")
 	var out []string
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		// Look for `if <cond> {` and check next non-empty line
-		if strings.Contains(line, " if ") || strings.HasPrefix(strings.TrimSpace(line), "if ") {
+
+		if strings.Contains(line, "server.Deps{") {
+			out = append(out, transform(line))
+			continue
+		}
+
+		if drop(line) {
 			if strings.HasSuffix(strings.TrimSpace(line), "{") {
-				// Scan ahead: if only whitespace until matching `}`, drop both lines
-				j := i + 1
-				for j < len(lines) && strings.TrimSpace(lines[j]) == "" {
-					j++
-				}
-				if j < len(lines) && strings.TrimSpace(lines[j]) == "}" {
-					// Drop this line and skip ahead past the closing brace
-					i = j
-					continue
+				depth := 1
+				for i+1 < len(lines) && depth > 0 {
+					i++
+					depth += strings.Count(lines[i], "{") - strings.Count(lines[i], "}")
 				}
 			}
+			continue
 		}
+
 		out = append(out, line)
 	}
-	return out
+
+	return os.WriteFile(path, []byte(strings.Join(out, "\n")), 0644)
+}
+
+// ---------- module path rewrite ----------
+
+// rewriteModulePaths replaces the template module path with the new project
+// module path in every .go file. Without this, Go downloads the public
+// template as an external dependency (see templateModule comment).
+func rewriteModulePaths(cfg newProjectConfig) error {
+	fmt.Println("→ Rewriting import paths...")
+	return filepath.WalkDir(cfg.Name, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || filepath.Ext(p) != ".go" {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		if !strings.Contains(string(data), templateModule) {
+			return nil
+		}
+		updated := strings.ReplaceAll(string(data), templateModule, cfg.Module)
+		return os.WriteFile(p, []byte(updated), 0644)
+	})
 }
 
 // ---------- go.mod ----------
@@ -351,16 +337,11 @@ func updateDotEnv(cfg newProjectConfig) error {
 	skipSection := ""
 
 	for _, line := range lines {
-		// Section markers: skip entire section if feature disabled
-		if strings.HasPrefix(line, "# ===== Redis =====") {
-			if !cfg.Redis {
-				skipSection = "redis"
-			}
+		if strings.HasPrefix(line, "# ===== Redis =====") && !cfg.Redis {
+			skipSection = "redis"
 		}
-		if strings.HasPrefix(line, "# ===== MinIO =====") {
-			if !cfg.Minio {
-				skipSection = "minio"
-			}
+		if strings.HasPrefix(line, "# ===== MinIO =====") && !cfg.Minio {
+			skipSection = "minio"
 		}
 		if strings.HasPrefix(line, "# ===== App =====") || strings.HasPrefix(line, "# ===== DB =====") {
 			skipSection = ""
@@ -369,14 +350,13 @@ func updateDotEnv(cfg newProjectConfig) error {
 			continue
 		}
 
-		// Substitute dynamic values
 		switch {
 		case strings.HasPrefix(line, "APP_NAME="):
 			out = append(out, "APP_NAME="+cfg.Name)
-		case strings.HasPrefix(line, "DATABASE_URL="):
-			out = append(out, "DATABASE_URL="+dbURLFor(cfg.Database))
 		case strings.HasPrefix(line, "DB_NAME="):
 			out = append(out, "DB_NAME="+cfg.Name)
+		case strings.HasPrefix(line, "DATABASE_URL="):
+			out = append(out, "DATABASE_URL="+dbURLFor(cfg.Database))
 		default:
 			out = append(out, line)
 		}
@@ -405,7 +385,6 @@ func updateDockerCompose(cfg newProjectConfig) error {
 	fmt.Println("→ Updating docker-compose.yaml...")
 	path := filepath.Join(cfg.Name, "docker-compose.yaml")
 
-	// SQLite: no compose needed
 	if cfg.Database == "sqlite" {
 		return os.Remove(path)
 	}
@@ -422,7 +401,6 @@ func updateDockerCompose(cfg newProjectConfig) error {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Start skipping a service block
 		if trimmed == "postgres:" && cfg.Database != "postgres" {
 			skipping = true
 			continue
@@ -435,8 +413,6 @@ func updateDockerCompose(cfg newProjectConfig) error {
 			skipping = true
 			continue
 		}
-
-		// End skipping: new top-level key (no leading whitespace, not a comment)
 		if skipping && len(line) > 0 && line[0] != ' ' && line[0] != '\t' && line[0] != '#' {
 			skipping = false
 		}
@@ -445,21 +421,11 @@ func updateDockerCompose(cfg newProjectConfig) error {
 		}
 	}
 
-	// Remove unused volumes (only keep those whose service survived)
 	out = pruneVolumes(out, cfg)
-
 	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0644)
 }
 
 func pruneVolumes(lines []string, cfg newProjectConfig) []string {
-	volName := func(s string) string {
-		s = strings.TrimSpace(s)
-		if i := strings.Index(s, ":"); i > 0 {
-			s = s[:i]
-		}
-		return strings.TrimSuffix(s, ":")
-	}
-
 	var out []string
 	inVolumes := false
 	for _, line := range lines {
@@ -473,7 +439,7 @@ func pruneVolumes(lines []string, cfg newProjectConfig) []string {
 			inVolumes = false
 		}
 		if inVolumes {
-			n := volName(line)
+			n := strings.TrimSuffix(trimmed, ":")
 			if n == "postgres_data" && cfg.Database != "postgres" {
 				continue
 			}
@@ -489,7 +455,7 @@ func pruneVolumes(lines []string, cfg newProjectConfig) []string {
 	return out
 }
 
-// ---------- README + git ----------
+// ---------- readme + git ----------
 
 func updateReadmeTitle(cfg newProjectConfig) {
 	path := filepath.Join(cfg.Name, "README.md")
@@ -514,24 +480,35 @@ func initGitRepo(dir string) {
 	_ = streamCmd(dir, "git", "commit", "-q", "-m", "Initial commit from ftpl new")
 }
 
-// ---------- install dependencies ----------
+// ---------- dependency install ----------
 
+// installDependencies resolves modules in place. A child process cannot cd
+// the parent shell, so this is the closest real automation possible.
 func installDependencies(dir string) {
-	fmt.Println("→ Downloading Go dependencies (this may take a moment)...")
-	c := exec.Command("go", "mod", "download")
-	c.Dir = dir
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	if err := c.Run(); err != nil {
+	fmt.Println("→ Resolving Go dependencies...")
+
+	// tidy FIRST: it fixes requires after pruning + module rewrite
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = dir
+	tidy.Stdout, tidy.Stderr = os.Stdout, os.Stderr
+	if err := tidy.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: go mod tidy failed: %v\n", err)
+	}
+
+	// SAFETY NET: the project must never depend on its own template.
+	// If this trips, the import rewrite silently failed somewhere.
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err == nil && strings.Contains(string(data), templateModule) {
+		fmt.Fprintln(os.Stderr, "error: go.mod still requires the template module — import rewrite failed")
+		os.Exit(1)
+	}
+
+	dl := exec.Command("go", "mod", "download")
+	dl.Dir = dir
+	dl.Stdout, dl.Stderr = os.Stdout, os.Stderr
+	if err := dl.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: go mod download failed: %v\n", err)
-		fmt.Println("  Run `go mod download` manually inside the project.")
 		return
 	}
-	// Tidy up: drop unused deps from packages we pruned
-	c2 := exec.Command("go", "mod", "tidy")
-	c2.Dir = dir
-	c2.Stdout = os.Stdout
-	c2.Stderr = os.Stderr
-	_ = c2.Run()
 	fmt.Println("✓ Dependencies installed")
 }
