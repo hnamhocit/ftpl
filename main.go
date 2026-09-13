@@ -54,15 +54,6 @@ var deleteResourceCmd = &cobra.Command{
 	},
 }
 
-var newCmd = &cobra.Command{
-	Use:   "new <app>",
-	Short: "Create a new project (coming soon)",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("ftpl new: coming soon")
-	},
-}
-
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable debug output")
 
@@ -71,7 +62,7 @@ func init() {
 	rootCmd.PersistentFlags().String("schema", "", "override schema file path")
 	rootCmd.PersistentFlags().String("dir", "", "override migrations directory")
 
-	rootCmd.AddCommand(generateCmd, deleteResourceCmd, newCmd, migrateCmd, dbCmd, doctorCmd, runCmd, versionCmd, updateCmd, uninstallCmd)
+	rootCmd.AddCommand(generateCmd, deleteResourceCmd, newCmd, migrateCmd, dbCmd, doctorCmd, runCmd, versionCmd, updateCmd, uninstallCmd, newCmd)
 	generateCmd.AddCommand(resourceCmd)
 
 	resourceCmd.Flags().Bool("no-tests", false, "skip test files")
