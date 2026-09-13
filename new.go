@@ -130,7 +130,7 @@ func askModulePath(projectName string) string {
 
 func cloneAndCustomize(cfg newProjectConfig) error {
 	fmt.Println("→ Cloning template...")
-	if err := streamCmd("", "git", "clone", "--depth", "1", "--quiet", templateModule+".git", cfg.Name); err != nil {
+	if err := streamCmd("", "git", "clone", "--depth", "1", "--quiet", "https://"+templateModule+".git", cfg.Name); err != nil {
 		return fmt.Errorf("clone template: %w", err)
 	}
 	if err := os.RemoveAll(filepath.Join(cfg.Name, ".git")); err != nil {
